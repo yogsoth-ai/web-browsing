@@ -4,7 +4,7 @@ description: Deep web research — fetches full page content for analysis. Snipp
 type: sop
 layer: sop
 tools:
-  brave-search: [brave_web_search, brave_news_search]
+  web-search-provider: [web_search, news_search]
   apify: [rag-web-browser]
 input: query (string), depth (standard | thorough)
 output: PageAnalysis[] with full markdown content + source URL
@@ -15,7 +15,7 @@ output: PageAnalysis[] with full markdown content + source URL
 ## Layer Rules
 - **Layer**: sop — wraps MCP tools directly
 - **Called by**: Any tactic or strategy requiring deep web content analysis
-- **Calls**: brave-search MCP tools, apify MCP tools (never calls other SOPs)
+- **Calls**: configured web-search MCP tools + apify MCP tools (never calls other SOPs)
 
 ## Purpose
 
@@ -30,22 +30,23 @@ Use this when you need to:
 
 **This skill REQUIRES full-page content fetching.** Snippet-only analysis is prohibited.
 
-## Tools
+## Provider Selection
 
-| Tool | Role | Returns |
-|------|------|---------|
-| `brave_web_search` | Discovery — find candidate URLs | URL, title, snippet |
-| `brave_news_search` | Discovery — recent news URLs | URL, title, snippet, date |
-| `apify/rag-web-browser` | Full-page fetch — get complete content | Full page as markdown |
+For URL discovery (Step 1), use whichever web-search MCP is configured — check
+availability yourself. If more than one is active, try them in the order listed
+below. This order is just the writing order, not a hard priority — any active
+provider is equally valid.
 
-### Tool Roles
-- **brave-search** = discovery only (find URLs worth reading)
-- **apify/rag-web-browser** = content fetching (get the actual page content)
+- Brave — see Provider Details (Discovery) § Brave
+- Tavily — see Provider Details (Discovery) § Tavily
+
+For full-page content fetching (Step 3), always use `apify/rag-web-browser`.
+This is not configurable — apify is the only supported content fetcher.
 
 ## HARD-GATE
 
 <HARD-GATE>
-**brave-search snippets are NOT sufficient for research.**
+**Search snippets are NOT sufficient for research.**
 
 For EVERY page selected for analysis, you MUST fetch full content via `apify/rag-web-browser`.
 
@@ -66,16 +67,10 @@ For EVERY page selected for analysis, you MUST fetch full content via `apify/rag
 
 ### Step 1: Discover
 
-Find candidate URLs via brave-search:
+Find candidate URLs via the configured web-search provider (~10 results per call).
+See Provider Details (Discovery) for exact tool name and parameters.
 
-```
-brave_web_search(query="your research topic", count=10)
-```
-
-For time-sensitive topics:
-```
-brave_news_search(query="topic", freshness="pw", count=10)
-```
+For time-sensitive topics, use news search if available.
 
 Use snippets ONLY to assess relevance for URL selection — not for analysis.
 
@@ -121,6 +116,48 @@ If fetched pages contain links to deeper resources:
 - Build a comprehensive picture from multiple layers
 - Useful for: documentation trails, reference chains, related articles
 
+## Provider Details (Discovery)
+
+### Brave
+
+Use for URL discovery only — not for content analysis.
+
+| Tool | Role | Returns |
+|------|------|---------|
+| `brave_web_search` | General URL discovery | URL, title, snippet |
+| `brave_news_search` | Recent news URL discovery | URL, title, snippet, date |
+
+**Key parameters:**
+- `query` (required): search terms, max 400 chars
+- `count`: 1-20 results (default 10)
+- `freshness`: `pd` (24h), `pw` (7d), `pm` (31d), `py` (365d)
+
+**Examples:**
+
+```
+brave_web_search(query="model context protocol MCP server development guide 2025", count=10)
+brave_news_search(query="GPT-5 announcement details capabilities", freshness="pw", count=10)
+```
+
+### Tavily
+
+Use for URL discovery only — not for content analysis.
+
+| Tool | Role | Returns |
+|------|------|---------|
+| `tavily_search` | General URL discovery | URL, title, content snippet, score |
+
+**Key parameters:**
+- `query` (required): search terms
+- `max_results`: number of results (default 10)
+- `search_depth`: `basic` or `advanced` (default basic)
+
+**Examples:**
+
+```
+tavily_search(query="model context protocol MCP server development guide 2025", max_results=10)
+```
+
 ## Tool-Specific Notes
 
 ### apify/rag-web-browser
@@ -132,62 +169,3 @@ If fetched pages contain links to deeper resources:
 - Some pages may fail to fetch (paywalls, JS-heavy SPAs, anti-bot) — note failures and try alternatives
 - Rate limiting: sequential fetches are fine, no special throttling needed
 - Large pages may be truncated — check if content seems incomplete
-
-### brave_web_search (discovery only)
-- Use ONLY for URL discovery, NOT for content analysis
-- `count=10` is usually sufficient for finding good candidates
-- Combine with `freshness` filter for time-sensitive research
-- Snippets are for relevance assessment only
-
-### brave_news_search (discovery only)
-- Better than web search for recent events
-- Returns publication dates — useful for recency filtering
-- Same parameters as brave_web_search
-
-## Examples
-
-### Technical documentation research: "MCP server development"
-
-```
-# Step 1: Discover
-brave_web_search(query="model context protocol MCP server development guide 2025", count=10)
-
-# Step 2: Select top 5 URLs (official docs, tutorials, blog posts)
-
-# Step 3: Fetch each
-apify/rag-web-browser(query="https://modelcontextprotocol.io/docs/concepts/servers", maxResults=1, outputFormats=["markdown"])
-apify/rag-web-browser(query="https://docs.anthropic.com/en/docs/build-with-claude/mcp", maxResults=1, outputFormats=["markdown"])
-# ... repeat for all selected URLs
-
-# Step 4: Analyze full content, cross-reference, synthesize
-```
-
-### Competitive analysis: "AI code assistants"
-
-```
-# Step 1: Discover
-brave_web_search(query="AI code assistant comparison review 2025", count=15)
-
-# Step 2: Select 5-8 comparison articles and official product pages
-
-# Step 3: Fetch
-apify/rag-web-browser(query="https://example.com/ai-code-assistant-comparison", maxResults=1, outputFormats=["markdown"])
-# ... repeat
-
-# Step 4: Compare features, pricing, capabilities across sources
-```
-
-### News deep-dive: "recent AI announcements"
-
-```
-# Step 1: Discover via news
-brave_news_search(query="GPT-5 announcement details capabilities", freshness="pw", count=10)
-
-# Step 2: Select 3-5 most detailed articles
-
-# Step 3: Fetch full articles
-apify/rag-web-browser(query="https://news-site.com/gpt5-full-article", maxResults=1, outputFormats=["markdown"])
-# ... repeat
-
-# Step 4: Synthesize details from multiple full articles
-```
